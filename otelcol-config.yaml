@@ -1,0 +1,27 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: localhost:14317
+      http:
+        endpoint: localhost:14318
+
+exporters:
+  debug:
+
+processors:
+  batch:
+
+connectors:
+  example:
+    attribute_name: db.name
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [example]
+    metrics:
+      receivers: [example]
+      exporters: [debug]

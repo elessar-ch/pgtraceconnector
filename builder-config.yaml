@@ -1,0 +1,28 @@
+dist:
+  name: otelcol-dev-bin
+  description: Basic OpenTelemetry collector distribution for Developers
+  output_path: ./otelcol-dev
+  otelcol_version: 0.92.0
+
+
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.92.0
+
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.92.0
+
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.92.0
+
+
+connectors:
+  - gomod: github.com/gord02/exampleconnector v0.86.0
+
+
+replaces:
+# a list of "replaces" directives that will be part of the resulting go.mod
+
+# This replace statement is necessary since the newly added component is not found/published to GitHub yet. Replace references to GitHub path with the local path
+- github.com/gord02/exampleconnector => ../exampleconnector

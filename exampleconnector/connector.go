@@ -3,7 +3,6 @@ package exampleconnector
 import (
 	"context"
 	"crypto/rand"
-	"fmt"
 	"regexp"
 	"time"
 
@@ -82,50 +81,57 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 				attrs := logRecord.Attributes()
 				mapping := attrs.AsRaw()
 
-				for key, value := range mapping {
-					if key == "message" {
-						valueString := value.(string)
-
-						// messages containing a plan start with the following string followed by a json object as a string that contains the plan
-						regex := regexp.MustCompile(`^duration: \d+\.\d+ ms  plan:`)
-						if regex.MatchString(valueString) {
-							fmt.Println("regex match found")
-
-							// extract duration
-							duration := regexp.MustCompile(`\d+\.\d+`).FindString(valueString)
-							startTime := time.Now()
-
-							parsedDuration, _ := time.ParseDuration(duration + "ms")
-							endTime := startTime.Add(parsedDuration)
-
-							// create a brand new trace with a new trace id
-							traces := ptrace.NewTraces()
-							resourceSpan := traces.ResourceSpans().AppendEmpty()
-							dbResource := resourceSpan.Resource()
-							dbAttrs := dbResource.Attributes()
-							dbAttrs.PutStr(string(semconv.DBSystemKey), semconv.DBSystemPostgreSQL.Value.AsString())
-							dbAttrs.PutStr(string(semconv.DBNameKey), "knexdb")
-							dbAttrs.PutStr(string(semconv.ServiceNameKey), "knexdb")
-
-							scopeSpans := resourceSpan.ScopeSpans().AppendEmpty()
-							scopeSpans.Scope().SetName("dbquery")
-							scopeSpans.Scope().SetVersion("0.0.1")
-
-							span := scopeSpans.Spans().AppendEmpty()
-							span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
-							span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
-							span.SetName("dbquery")
-							span.SetKind(ptrace.SpanKindClient)
-
-							var traceID [16]byte
-							rand.Read(traceID[:])
-
-							span.SetTraceID(traceID)
-
-							return c.tracesConsumer.ConsumeTraces(ctx, traces)
-						}
-					}
+				m, containsMessage := mapping["message"]
+				if !containsMessage {
+					c.logger.Warn("Log does not contain a message attribute")
+					continue
 				}
+				message, ok := m.(string)
+				if !ok {
+					c.logger.Warn("Message is not a string")
+					continue
+				}
+
+				// messages containing a plan start with the following string followed by a json object as a string that contains the plan
+				regex := regexp.MustCompile(`^duration: \d+\.\d+ ms  plan:`)
+				if !regex.MatchString(message) {
+					c.logger.Info("Message does not contain a query plan", zap.String("message", message))
+					continue
+				}
+
+				// extract duration
+				duration := regexp.MustCompile(`\d+\.\d+`).FindString(message)
+				startTime := time.Now()
+				// ctx, span := tracer.Start(ctx, "foo", trace.WithTimestamp(startTime))
+
+				parsedDuration, _ := time.ParseDuration(duration + "ms")
+				endTime := startTime.Add(parsedDuration)
+
+				// create a brand new trace with a new trace id
+				traces := ptrace.NewTraces()
+				resourceSpan := traces.ResourceSpans().AppendEmpty()
+				dbResource := resourceSpan.Resource()
+				dbAttrs := dbResource.Attributes()
+				dbAttrs.PutStr(string(semconv.DBSystemKey), semconv.DBSystemPostgreSQL.Value.AsString())
+				dbAttrs.PutStr(string(semconv.DBNameKey), "knexdb")
+				dbAttrs.PutStr(string(semconv.ServiceNameKey), "knexdb")
+
+				scopeSpans := resourceSpan.ScopeSpans().AppendEmpty()
+				scopeSpans.Scope().SetName("dbquery")
+				scopeSpans.Scope().SetVersion("0.0.1")
+
+				span := scopeSpans.Spans().AppendEmpty()
+				span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
+				span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
+				span.SetName("dbquery")
+				span.SetKind(ptrace.SpanKindClient)
+
+				var traceID [16]byte
+				rand.Read(traceID[:])
+
+				span.SetTraceID(traceID)
+
+				return c.tracesConsumer.ConsumeTraces(ctx, traces)
 			}
 		}
 	}

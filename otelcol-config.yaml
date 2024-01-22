@@ -9,6 +9,10 @@ receivers:
 exporters:
   debug:
     verbosity: detailed
+  otlp:
+    endpoint: localhost:4317
+    tls:
+      insecure: true
 
 processors:
   batch:
@@ -21,7 +25,7 @@ service:
   pipelines:
     traces:
       receivers: [example]
-      exporters: [debug]
+      exporters: [debug, otlp]
     logs:
       receivers: [otlp]
       exporters: [example]

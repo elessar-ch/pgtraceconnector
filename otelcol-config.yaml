@@ -8,6 +8,7 @@ receivers:
 
 exporters:
   debug:
+    verbosity: detailed
 
 processors:
   batch:
@@ -19,9 +20,8 @@ connectors:
 service:
   pipelines:
     traces:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [example]
-    metrics:
       receivers: [example]
       exporters: [debug]
+    logs:
+      receivers: [otlp]
+      exporters: [example]

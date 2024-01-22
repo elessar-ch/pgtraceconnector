@@ -17,6 +17,17 @@ import (
 	"go.uber.org/zap"
 )
 
+type traceParent struct {
+	version            [1]byte
+	traceID            [16]byte
+	parentSpanID       [8]byte
+	flags              [1]byte
+	versionString      string
+	traceIDString      string
+	parentSpanIDString string
+	flagsString        string
+}
+
 // schema for connector
 type connectorImp struct {
 	config          Config
@@ -102,10 +113,24 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 				// extract duration
 				duration := regexp.MustCompile(`\d+\.\d+`).FindString(message)
 				startTime := time.Now()
-				// ctx, span := tracer.Start(ctx, "foo", trace.WithTimestamp(startTime))
 
 				parsedDuration, _ := time.ParseDuration(duration + "ms")
 				endTime := startTime.Add(parsedDuration)
+
+				traceParentRe := regexp.MustCompile(`(?m)traceparent='([\da-f]{2})-([\da-f]{32})-([\da-f]{16})-([\da-f]{2})'`)
+
+				traceParentResult := traceParentRe.FindAllStringSubmatch(message, -1)
+				traceParent := traceParent{
+					versionString:      traceParentResult[0][1],
+					traceIDString:      traceParentResult[0][2],
+					parentSpanIDString: traceParentResult[0][3],
+					flagsString:        traceParentResult[0][4],
+				}
+				hex.Decode(traceParent.traceID[:], []byte(traceParent.traceIDString))
+				hex.Decode(traceParent.parentSpanID[:], []byte(traceParent.parentSpanIDString))
+				hex.Decode(traceParent.flags[:], []byte(traceParent.flagsString))
+				hex.Decode(traceParent.version[:], []byte(traceParent.versionString))
+
 
 				// create a brand new trace with a new trace id
 				traces := ptrace.NewTraces()
@@ -121,15 +146,19 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 				scopeSpans.Scope().SetVersion("0.0.1")
 
 				span := scopeSpans.Spans().AppendEmpty()
+
+				var sid [8]byte
+				rand.Read(sid[:])
+				span.SetSpanID(pcommon.SpanID(sid))
+
+				span.SetParentSpanID(pcommon.SpanID(traceParent.parentSpanID))
+
 				span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
 				span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
 				span.SetName("dbquery")
 				span.SetKind(ptrace.SpanKindClient)
 
-				var traceID [16]byte
-				rand.Read(traceID[:])
-
-				span.SetTraceID(traceID)
+				span.SetTraceID(traceParent.traceID)
 
 				return c.tracesConsumer.ConsumeTraces(ctx, traces)
 			}

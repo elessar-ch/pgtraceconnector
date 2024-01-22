@@ -31,11 +31,21 @@ func createTracesToMetricsConnector(ctx context.Context, params connector.Create
 	return c, nil
 }
 
+func createLogsToTracesConnector(ctx context.Context, params connector.CreateSettings, cfg component.Config, nextConsumer consumer.Traces) (connector.Logs, error) {
+	c, err := newConnector(params.Logger, cfg)
+	if err != nil {
+		return nil, err
+	}
+	c.tracesConsumer = nextConsumer
+	return c, nil
+}
+
 // NewFactory creates a factory for example connector.
 func NewFactory() connector.Factory {
 	// OpenTelemetry connector factory to make a factory for connectors
 	return connector.NewFactory(
 		typeStr,
 		createDefaultConfig,
-		connector.WithTracesToMetrics(createTracesToMetricsConnector, component.StabilityLevelAlpha))
+		connector.WithTracesToMetrics(createTracesToMetricsConnector, component.StabilityLevelAlpha),
+		connector.WithLogsToTraces(createLogsToTracesConnector, component.StabilityLevelAlpha))
 }

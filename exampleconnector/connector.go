@@ -2,11 +2,19 @@ package exampleconnector
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
+	"regexp"
+	"time"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.uber.org/zap"
 )
 
@@ -14,6 +22,7 @@ import (
 type connectorImp struct {
 	config          Config
 	metricsConsumer consumer.Metrics
+	tracesConsumer  consumer.Traces
 	logger          *zap.Logger
 	// Include these parameters if a specific implementation for the Start and Shutdown function are not needed
 	component.StartFunc
@@ -54,6 +63,67 @@ func (c *connectorImp) ConsumeTraces(ctx context.Context, td ptrace.Traces) erro
 						// create metric only if span of trace had the specific attribute
 						metrics := pmetric.NewMetrics()
 						return c.metricsConsumer.ConsumeMetrics(ctx, metrics)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// ConsumeLogs method is called for each instance of a log sent to the connector
+func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
+	for i := 0; i < ld.ResourceLogs().Len(); i++ {
+		resourceLog := ld.ResourceLogs().At(i)
+		for j := 0; j < resourceLog.ScopeLogs().Len(); j++ {
+			scopeLog := resourceLog.ScopeLogs().At(j)
+			for k := 0; k < scopeLog.LogRecords().Len(); k++ {
+				logRecord := scopeLog.LogRecords().At(k)
+				attrs := logRecord.Attributes()
+				mapping := attrs.AsRaw()
+
+				for key, value := range mapping {
+					if key == "message" {
+						valueString := value.(string)
+
+						// messages containing a plan start with the following string followed by a json object as a string that contains the plan
+						regex := regexp.MustCompile(`^duration: \d+\.\d+ ms  plan:`)
+						if regex.MatchString(valueString) {
+							fmt.Println("regex match found")
+
+							// extract duration
+							duration := regexp.MustCompile(`\d+\.\d+`).FindString(valueString)
+							startTime := time.Now()
+
+							parsedDuration, _ := time.ParseDuration(duration + "ms")
+							endTime := startTime.Add(parsedDuration)
+
+							// create a brand new trace with a new trace id
+							traces := ptrace.NewTraces()
+							resourceSpan := traces.ResourceSpans().AppendEmpty()
+							dbResource := resourceSpan.Resource()
+							dbAttrs := dbResource.Attributes()
+							dbAttrs.PutStr(string(semconv.DBSystemKey), semconv.DBSystemPostgreSQL.Value.AsString())
+							dbAttrs.PutStr(string(semconv.DBNameKey), "knexdb")
+							dbAttrs.PutStr(string(semconv.ServiceNameKey), "knexdb")
+
+							scopeSpans := resourceSpan.ScopeSpans().AppendEmpty()
+							scopeSpans.Scope().SetName("dbquery")
+							scopeSpans.Scope().SetVersion("0.0.1")
+
+							span := scopeSpans.Spans().AppendEmpty()
+							span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
+							span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
+							span.SetName("dbquery")
+							span.SetKind(ptrace.SpanKindClient)
+
+							var traceID [16]byte
+							rand.Read(traceID[:])
+
+							span.SetTraceID(traceID)
+
+							return c.tracesConsumer.ConsumeTraces(ctx, traces)
+						}
 					}
 				}
 			}

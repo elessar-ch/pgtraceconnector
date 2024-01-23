@@ -106,14 +106,15 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 				parsedDuration, _ := time.ParseDuration(duration + "ms")
 				endTime := startTime.Add(parsedDuration)
 
+				// extract traceparent. Example is: traceparent='00-327399ed7502ed8c4581000592a68744-427536a0ac580616-01'
 				traceParentRe := regexp.MustCompile(`(?m)traceparent='([\da-f]{2})-([\da-f]{32})-([\da-f]{16})-([\da-f]{2})'`)
 
-				traceParentResult := traceParentRe.FindAllStringSubmatch(message, -1)
+				traceParentResult := traceParentRe.FindStringSubmatch(message)
 				traceParent := traceParent{
-					versionString:      traceParentResult[0][1],
-					traceIDString:      traceParentResult[0][2],
-					parentSpanIDString: traceParentResult[0][3],
-					flagsString:        traceParentResult[0][4],
+					versionString:      traceParentResult[1],
+					traceIDString:      traceParentResult[2],
+					parentSpanIDString: traceParentResult[3],
+					flagsString:        traceParentResult[4],
 				}
 				hex.Decode(traceParent.traceID[:], []byte(traceParent.traceIDString))
 				hex.Decode(traceParent.parentSpanID[:], []byte(traceParent.parentSpanIDString))

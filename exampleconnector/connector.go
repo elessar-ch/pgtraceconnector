@@ -129,7 +129,7 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 			}
 		}
 	}
-	return nil
+	return c.tracesConsumer.ConsumeTraces(ctx, traces)
 }
 
 // Method to parse the query plan from JSON and create trace spans for each step

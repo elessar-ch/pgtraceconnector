@@ -20,17 +20,6 @@ func createDefaultConfig() component.Config {
 	}
 }
 
-// createTracesToMetricsConnector defines the consumer type of the connector
-// We want to consume traces and export metrics, therefore, define nextConsumer as metrics, since consumer is the next component in the pipeline
-func createTracesToMetricsConnector(ctx context.Context, params connector.CreateSettings, cfg component.Config, nextConsumer consumer.Metrics) (connector.Traces, error) {
-	c, err := newConnector(params.Logger, cfg)
-	if err != nil {
-		return nil, err
-	}
-	c.metricsConsumer = nextConsumer
-	return c, nil
-}
-
 func createLogsToTracesConnector(ctx context.Context, params connector.CreateSettings, cfg component.Config, nextConsumer consumer.Traces) (connector.Logs, error) {
 	c, err := newConnector(params.Logger, cfg)
 	if err != nil {
@@ -46,6 +35,5 @@ func NewFactory() connector.Factory {
 	return connector.NewFactory(
 		typeStr,
 		createDefaultConfig,
-		connector.WithTracesToMetrics(createTracesToMetricsConnector, component.StabilityLevelAlpha),
 		connector.WithLogsToTraces(createLogsToTracesConnector, component.StabilityLevelAlpha))
 }

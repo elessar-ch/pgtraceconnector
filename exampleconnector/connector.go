@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"regexp"
 	"time"
 
@@ -147,27 +148,161 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 				hex.Decode(traceParent.flags[:], []byte(traceParent.flagsString))
 				hex.Decode(traceParent.version[:], []byte(traceParent.versionString))
 
-
-				// create a brand new trace with a new trace id
-
-				span := scopeSpans.Spans().AppendEmpty()
-
-				var sid [8]byte
-				rand.Read(sid[:])
-				span.SetSpanID(pcommon.SpanID(sid))
-
-				span.SetParentSpanID(pcommon.SpanID(traceParent.parentSpanID))
-
-				span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
-				span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
-				span.SetName("dbquery")
-				span.SetKind(ptrace.SpanKindClient)
-
-				span.SetTraceID(traceParent.traceID)
+				// span := scopeSpans.Spans().AppendEmpty()
+				spanSlice := parseQueryPlan(message, startTime, endTime, traceParent)
+				spanSlice.MoveAndAppendTo(scopeSpans.Spans())
 
 				return c.tracesConsumer.ConsumeTraces(ctx, traces)
 			}
 		}
 	}
 	return nil
+}
+
+// Method to parse the query plan from JSON and create trace spans for each step
+func parseQueryPlan(message string, startTime time.Time, endTime time.Time, tp traceParent) ptrace.SpanSlice {
+	slice := ptrace.NewSpanSlice()
+	span := slice.AppendEmpty()
+
+	span.SetTraceID(tp.traceID)
+	span.SetParentSpanID(pcommon.SpanID(tp.parentSpanID))
+
+	var sid [8]byte
+	rand.Read(sid[:])
+	span.SetSpanID(pcommon.SpanID(sid))
+
+	span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
+	span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
+	span.SetName("Query Plan")
+	span.SetKind(ptrace.SpanKindClient)
+
+	// extract the part that comes after the regex match
+	// this is the query plan
+	queryPlanJson := regexp.MustCompile(`(?ms){.*}`).FindStringSubmatch(message)[0]
+	// regexp.MustCompile(`(?ms){.*}`)
+	// parse json
+	// queryPlanJson is a string, so we need to convert it to a byte array
+	// then we can unmarshal it into a map
+	queryPlanJsonBytes := []byte(queryPlanJson)
+	var queryPlanMap map[string]interface{}
+	json.Unmarshal(queryPlanJsonBytes, &queryPlanMap)
+
+	newTraceParent := traceParent{
+		version:      tp.version,
+		traceID:      tp.traceID,
+		parentSpanID: sid,
+		flags:        tp.flags,
+	}
+
+	queryPlan, hasPlan := queryPlanMap["Plan"]
+	if !hasPlan {
+		return slice
+	}
+
+	processPlanStep(queryPlan.(map[string]interface{}), startTime, endTime, newTraceParent).MoveAndAppendTo(slice)
+
+	return slice
+}
+
+func processPlanStep(planStep map[string]interface{}, startTime time.Time, endTime time.Time, tp traceParent) ptrace.SpanSlice {
+	slice := ptrace.NewSpanSlice()
+	span := slice.AppendEmpty()
+
+	span.SetTraceID(tp.traceID)
+	span.SetParentSpanID(pcommon.SpanID(tp.parentSpanID))
+
+	var sid [8]byte
+	rand.Read(sid[:])
+	span.SetSpanID(pcommon.SpanID(sid))
+
+	span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
+	span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
+	span.SetName("Plan Step")
+	span.SetKind(ptrace.SpanKindClient)
+
+	extractPlanAttributes(planStep, span, tp, sid, startTime, endTime, slice)
+
+	if _, hasPlans := planStep["Plans"]; hasPlans {
+		plans := planStep["Plans"].([]interface{})
+
+		newTraceParent := traceParent{
+			version:      tp.version,
+			traceID:      tp.traceID,
+			parentSpanID: sid,
+			flags:        tp.flags,
+		}
+
+		for _, plan := range plans {
+			processPlanStep(plan.(map[string]interface{}), startTime, endTime, newTraceParent).MoveAndAppendTo(slice)
+		}
+	}
+
+	return slice
+}
+
+func extractPlanAttributes(planStep map[string]interface{}, span ptrace.Span, tp traceParent, sid [8]byte, startTime time.Time, endTime time.Time, slice ptrace.SpanSlice) {
+	for key, value := range planStep {
+		switch key {
+		case "Node Type":
+			span.Attributes().PutStr("node_type", value.(string))
+			span.SetName(value.(string))
+		case "Relation Name":
+			span.Attributes().PutStr("relation_name", value.(string))
+		case "Alias":
+			span.Attributes().PutStr("alias", value.(string))
+		case "Startup Cost":
+			span.Attributes().PutDouble("startup_cost", value.(float64))
+		case "Total Cost":
+			span.Attributes().PutDouble("total_cost", value.(float64))
+		case "Plan Rows":
+			span.Attributes().PutInt("plan_rows", int64(value.(float64)))
+		case "Plan Width":
+			span.Attributes().PutInt("plan_width", int64(value.(float64)))
+		case "Actual Startup Time":
+			span.Attributes().PutDouble("actual_startup_time", value.(float64))
+		case "Actual Total Time":
+			span.Attributes().PutDouble("actual_total_time", value.(float64))
+		case "Actual Rows":
+			span.Attributes().PutInt("actual_rows", int64(value.(float64)))
+		case "Actual Loops":
+			span.Attributes().PutInt("actual_loops", int64(value.(float64)))
+		case "Output":
+			span.Attributes().PutStr("output", value.(string))
+		case "Filter":
+			span.Attributes().PutStr("filter", value.(string))
+		case "Recheck Cond":
+			span.Attributes().PutStr("recheck_cond", value.(string))
+		case "Rows Removed by Filter":
+			span.Attributes().PutInt("rows_removed_by_filter", int64(value.(float64)))
+		case "Inner Unique":
+			span.Attributes().PutBool("inner_unique", value.(bool))
+		case "Index Name":
+			span.Attributes().PutStr("index_name", value.(string))
+		case "Index Cond":
+			span.Attributes().PutStr("index_cond", value.(string))
+		case "Join Type":
+			span.Attributes().PutStr("join_type", value.(string))
+		case "Hash Cond":
+			span.Attributes().PutStr("hash_cond", value.(string))
+		case "Hash Buckets":
+			span.Attributes().PutInt("hash_buckets", int64(value.(float64)))
+		case "Hash Batches":
+			span.Attributes().PutInt("hash_batches", int64(value.(float64)))
+		case "Group Key":
+			span.Attributes().PutStr("group_key", value.(string))
+		case "Plans":
+			break
+		default:
+			switch value.(type) {
+			case int:
+				span.Attributes().PutInt(key, int64(value.(int)))
+			case float64:
+				span.Attributes().PutDouble(key, value.(float64))
+			case bool:
+				span.Attributes().PutBool(key, value.(bool))
+			case string:
+				span.Attributes().PutStr(key, value.(string))
+			}
+		}
+	}
 }

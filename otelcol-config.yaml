@@ -10,7 +10,7 @@ exporters:
   debug:
     verbosity: detailed
   otlp:
-    endpoint: localhost:4317
+    endpoint: localhost:4319
     tls:
       insecure: true
 

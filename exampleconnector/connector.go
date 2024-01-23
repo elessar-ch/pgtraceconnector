@@ -3,6 +3,7 @@ package exampleconnector
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"regexp"
 	"time"
 
@@ -83,10 +84,25 @@ func (c *connectorImp) ConsumeTraces(ctx context.Context, td ptrace.Traces) erro
 
 // ConsumeLogs method is called for each instance of a log sent to the connector
 func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
+	traces := ptrace.NewTraces()
+
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		resourceLog := ld.ResourceLogs().At(i)
+		resourceSpan := traces.ResourceSpans().AppendEmpty()
+		dbResource := resourceSpan.Resource()
+		dbAttrs := dbResource.Attributes()
+
+		dbAttrs.PutStr(string(semconv.DBSystemKey), semconv.DBSystemPostgreSQL.Value.AsString())
+		dbAttrs.PutStr(string(semconv.DBNameKey), "knexdb")
+		dbAttrs.PutStr(string(semconv.ServiceNameKey), "knexdb")
+
 		for j := 0; j < resourceLog.ScopeLogs().Len(); j++ {
 			scopeLog := resourceLog.ScopeLogs().At(j)
+
+			scopeSpans := resourceSpan.ScopeSpans().AppendEmpty()
+			scopeSpans.Scope().SetName("dbquery")
+			scopeSpans.Scope().SetVersion("0.0.1")
+
 			for k := 0; k < scopeLog.LogRecords().Len(); k++ {
 				logRecord := scopeLog.LogRecords().At(k)
 				attrs := logRecord.Attributes()
@@ -133,17 +149,6 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 
 
 				// create a brand new trace with a new trace id
-				traces := ptrace.NewTraces()
-				resourceSpan := traces.ResourceSpans().AppendEmpty()
-				dbResource := resourceSpan.Resource()
-				dbAttrs := dbResource.Attributes()
-				dbAttrs.PutStr(string(semconv.DBSystemKey), semconv.DBSystemPostgreSQL.Value.AsString())
-				dbAttrs.PutStr(string(semconv.DBNameKey), "knexdb")
-				dbAttrs.PutStr(string(semconv.ServiceNameKey), "knexdb")
-
-				scopeSpans := resourceSpan.ScopeSpans().AppendEmpty()
-				scopeSpans.Scope().SetName("dbquery")
-				scopeSpans.Scope().SetVersion("0.0.1")
 
 				span := scopeSpans.Spans().AppendEmpty()
 

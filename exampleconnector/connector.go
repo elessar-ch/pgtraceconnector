@@ -101,10 +101,10 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 
 				// extract duration
 				duration := regexp.MustCompile(`\d+\.\d+`).FindString(message)
-				startTime := time.Now()
+				startTime := logRecord.Timestamp()
 
 				parsedDuration, _ := time.ParseDuration(duration + "ms")
-				endTime := startTime.Add(parsedDuration)
+				endTime := startTime.AsTime().Add(parsedDuration)
 
 				// extract traceparent. Example is: traceparent='00-327399ed7502ed8c4581000592a68744-427536a0ac580616-01'
 				traceParentRe := regexp.MustCompile(`(?m)traceparent='([\da-f]{2})-([\da-f]{32})-([\da-f]{16})-([\da-f]{2})'`)
@@ -121,11 +121,9 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 				hex.Decode(traceParent.flags[:], []byte(traceParent.flagsString))
 				hex.Decode(traceParent.version[:], []byte(traceParent.versionString))
 
-				// span := scopeSpans.Spans().AppendEmpty()
 				spanSlice := parseQueryPlan(message, startTime, endTime, traceParent)
 				spanSlice.MoveAndAppendTo(scopeSpans.Spans())
 
-				return c.tracesConsumer.ConsumeTraces(ctx, traces)
 			}
 		}
 	}
@@ -133,7 +131,7 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 }
 
 // Method to parse the query plan from JSON and create trace spans for each step
-func parseQueryPlan(message string, startTime time.Time, endTime time.Time, tp traceParent) ptrace.SpanSlice {
+func parseQueryPlan(message string, startTime pcommon.Timestamp, endTime time.Time, tp traceParent) ptrace.SpanSlice {
 	slice := ptrace.NewSpanSlice()
 	span := slice.AppendEmpty()
 
@@ -144,7 +142,7 @@ func parseQueryPlan(message string, startTime time.Time, endTime time.Time, tp t
 	rand.Read(sid[:])
 	span.SetSpanID(pcommon.SpanID(sid))
 
-	span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
+	span.SetStartTimestamp(startTime)
 	span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
 	span.SetName("Query Plan")
 	span.SetKind(ptrace.SpanKindClient)
@@ -177,7 +175,7 @@ func parseQueryPlan(message string, startTime time.Time, endTime time.Time, tp t
 	return slice
 }
 
-func processPlanStep(planStep map[string]interface{}, startTime time.Time, endTime time.Time, tp traceParent) ptrace.SpanSlice {
+func processPlanStep(planStep map[string]interface{}, startTime pcommon.Timestamp, endTime time.Time, tp traceParent) ptrace.SpanSlice {
 	slice := ptrace.NewSpanSlice()
 	span := slice.AppendEmpty()
 
@@ -188,7 +186,7 @@ func processPlanStep(planStep map[string]interface{}, startTime time.Time, endTi
 	rand.Read(sid[:])
 	span.SetSpanID(pcommon.SpanID(sid))
 
-	span.SetStartTimestamp(pcommon.NewTimestampFromTime(startTime))
+	span.SetStartTimestamp(startTime)
 	span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
 	span.SetName("Plan Step")
 	span.SetKind(ptrace.SpanKindClient)
@@ -213,7 +211,7 @@ func processPlanStep(planStep map[string]interface{}, startTime time.Time, endTi
 	return slice
 }
 
-func extractPlanAttributes(planStep map[string]interface{}, span ptrace.Span, tp traceParent, sid [8]byte, startTime time.Time, endTime time.Time, slice ptrace.SpanSlice) {
+func extractPlanAttributes(planStep map[string]interface{}, span ptrace.Span, tp traceParent, sid [8]byte, startTime pcommon.Timestamp, endTime time.Time, slice ptrace.SpanSlice) {
 	for key, value := range planStep {
 		switch key {
 		case "Node Type":

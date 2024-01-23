@@ -144,16 +144,12 @@ func parseQueryPlan(message string, startTime pcommon.Timestamp, endTime time.Ti
 
 	span.SetStartTimestamp(startTime)
 	span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
+
 	span.SetName("Query Plan")
 	span.SetKind(ptrace.SpanKindClient)
 
-	// extract the part that comes after the regex match
-	// this is the query plan
+	// extract the query plan json from the message
 	queryPlanJson := regexp.MustCompile(`(?ms){.*}`).FindStringSubmatch(message)[0]
-	// regexp.MustCompile(`(?ms){.*}`)
-	// parse json
-	// queryPlanJson is a string, so we need to convert it to a byte array
-	// then we can unmarshal it into a map
 	queryPlanJsonBytes := []byte(queryPlanJson)
 	var queryPlanMap map[string]interface{}
 	json.Unmarshal(queryPlanJsonBytes, &queryPlanMap)
@@ -170,12 +166,12 @@ func parseQueryPlan(message string, startTime pcommon.Timestamp, endTime time.Ti
 		return slice
 	}
 
-	processPlanStep(queryPlan.(map[string]interface{}), startTime, endTime, newTraceParent).MoveAndAppendTo(slice)
+	processPlanStep(queryPlan.(map[string]interface{}), startTime, newTraceParent).MoveAndAppendTo(slice)
 
 	return slice
 }
 
-func processPlanStep(planStep map[string]interface{}, startTime pcommon.Timestamp, endTime time.Time, tp traceParent) ptrace.SpanSlice {
+func processPlanStep(planStep map[string]interface{}, startTime pcommon.Timestamp, tp traceParent) ptrace.SpanSlice {
 	slice := ptrace.NewSpanSlice()
 	span := slice.AppendEmpty()
 
@@ -187,11 +183,14 @@ func processPlanStep(planStep map[string]interface{}, startTime pcommon.Timestam
 	span.SetSpanID(pcommon.SpanID(sid))
 
 	span.SetStartTimestamp(startTime)
-	span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
 	span.SetName("Plan Step")
 	span.SetKind(ptrace.SpanKindClient)
 
-	extractPlanAttributes(planStep, span, tp, sid, startTime, endTime, slice)
+	extractPlanAttributes(planStep, span, tp, sid, slice)
+	actualTotalTime, _ := span.Attributes().Get("actual_total_time")
+	endTime := startTime.AsTime().Add(time.Duration(actualTotalTime.Double() * float64(time.Millisecond)))
+	// time.Duration(actualTotalTime.Double()*float64(time.Millisecond)
+	span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
 
 	if _, hasPlans := planStep["Plans"]; hasPlans {
 		plans := planStep["Plans"].([]interface{})
@@ -203,20 +202,28 @@ func processPlanStep(planStep map[string]interface{}, startTime pcommon.Timestam
 			flags:        tp.flags,
 		}
 
+		childPlanTotalTime := 0.0
 		for _, plan := range plans {
-			processPlanStep(plan.(map[string]interface{}), startTime, endTime, newTraceParent).MoveAndAppendTo(slice)
+			startTimeInclOffset := pcommon.NewTimestampFromTime(startTime.AsTime().Add(time.Duration(childPlanTotalTime * float64(time.Millisecond))))
+
+			childSpan := processPlanStep(plan.(map[string]interface{}), startTimeInclOffset, newTraceParent)
+
+			childPlanTime, _ := childSpan.At(0).Attributes().Get("actual_total_time")
+			childPlanTotalTime += childPlanTime.Double()
+
+			childSpan.MoveAndAppendTo(slice)
 		}
 	}
 
 	return slice
 }
 
-func extractPlanAttributes(planStep map[string]interface{}, span ptrace.Span, tp traceParent, sid [8]byte, startTime pcommon.Timestamp, endTime time.Time, slice ptrace.SpanSlice) {
+func extractPlanAttributes(planStep map[string]interface{}, span ptrace.Span, tp traceParent, sid [8]byte, slice ptrace.SpanSlice) {
 	for key, value := range planStep {
 		switch key {
 		case "Node Type":
 			span.Attributes().PutStr("node_type", value.(string))
-			span.SetName(value.(string))
+			span.SetName(value.(string) + span.SpanID().String())
 		case "Relation Name":
 			span.Attributes().PutStr("relation_name", value.(string))
 		case "Alias":

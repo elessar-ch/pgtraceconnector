@@ -110,6 +110,9 @@ func (c *connectorImp) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 				traceParentRe := regexp.MustCompile(`(?m)traceparent='([\da-f]{2})-([\da-f]{32})-([\da-f]{16})-([\da-f]{2})'`)
 
 				traceParentResult := traceParentRe.FindStringSubmatch(message)
+				if len(traceParentResult) != 5 {
+					continue
+				}
 				traceParent := traceParent{
 					versionString:      traceParentResult[1],
 					traceIDString:      traceParentResult[2],

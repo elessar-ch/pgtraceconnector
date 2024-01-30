@@ -6,7 +6,11 @@ The pg trace connector is a connector for the OpenTelemetry Collector that trans
 The connector requires logs with the correct timestamp and the message attribute containing the duration and query plan, generated with the `auto_explain` PostgreSQL module. An example message is shown at the bottom.
 
 ## Building and Running this Component Locally
-The pg trace connector must be built into a distribution of an OpenTelemetry Collector. This repository contains a manifest for building a collector with the connector in `builder-config.yaml`.
+The pg trace connector must be built into a distribution of an OpenTelemetry Collector.
+This requires the OpenTelemetry Collector Builder (ocb). How to install and use the ocb is documented here:
+https://opentelemetry.io/docs/collector/building/connector/#using-the-component
+
+This repository contains a manifest for building a collector with the connector in `builder-config.yaml`.
 
 To build this component run:
 ```sh

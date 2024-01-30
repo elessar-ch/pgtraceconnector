@@ -1,4 +1,4 @@
-module github.com/gord02/exampleconnector
+module github.com/elessar-ch/pgtraceconnector
 
 go 1.21.6
 

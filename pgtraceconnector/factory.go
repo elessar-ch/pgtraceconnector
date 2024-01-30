@@ -1,4 +1,4 @@
-package exampleconnector
+package pgtraceconnector
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 const (
 	defaultVal = "request.n"
 	// this is the name used to refer to the connector in the config.yaml
-	typeStr = "example"
+	typeStr = "pgtrace"
 )
 
 func createDefaultConfig() component.Config {

@@ -1,4 +1,4 @@
-package exampleconnector
+package pgtraceconnector
 
 import (
 	"context"
@@ -41,7 +41,7 @@ type connectorImp struct {
 
 // newConnector is a function to create a new connector
 func newConnector(logger *zap.Logger, config component.Config) (*connectorImp, error) {
-	logger.Info("Building exampleconnector connector")
+	logger.Info("Building pgtraceconnector connector")
 	cfg := config.(*Config)
 
 	return &connectorImp{
@@ -183,13 +183,12 @@ func processPlanStep(planStep map[string]interface{}, startTime pcommon.Timestam
 	span.SetSpanID(pcommon.SpanID(sid))
 
 	span.SetStartTimestamp(startTime)
-	span.SetName("Plan Step")
 	span.SetKind(ptrace.SpanKindClient)
 
 	extractPlanAttributes(planStep, span, tp, sid, slice)
 	actualTotalTime, _ := span.Attributes().Get("actual_total_time")
 	endTime := startTime.AsTime().Add(time.Duration(actualTotalTime.Double() * float64(time.Millisecond)))
-	// time.Duration(actualTotalTime.Double()*float64(time.Millisecond)
+
 	span.SetEndTimestamp(pcommon.NewTimestampFromTime(endTime))
 
 	if _, hasPlans := planStep["Plans"]; hasPlans {
@@ -223,7 +222,7 @@ func extractPlanAttributes(planStep map[string]interface{}, span ptrace.Span, tp
 		switch key {
 		case "Node Type":
 			span.Attributes().PutStr("node_type", value.(string))
-			span.SetName(value.(string) + span.SpanID().String())
+			span.SetName(value.(string))
 		case "Relation Name":
 			span.Attributes().PutStr("relation_name", value.(string))
 		case "Alias":

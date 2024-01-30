@@ -19,11 +19,11 @@ receivers:
 
 
 connectors:
-  - gomod: github.com/gord02/exampleconnector v0.86.0
+  - gomod: github.com/elessar-ch/pgtraceconnector v0.0.1
 
 
 replaces:
 # a list of "replaces" directives that will be part of the resulting go.mod
 
 # This replace statement is necessary since the newly added component is not found/published to GitHub yet. Replace references to GitHub path with the local path
-- github.com/gord02/exampleconnector => ../exampleconnector
+- github.com/elessar-ch/pgtraceconnector => ../pgtraceconnector

@@ -10,7 +10,7 @@ exporters:
   debug:
     verbosity: detailed
   otlp:
-    endpoint: localhost:4319
+    endpoint: localhost:4317
     tls:
       insecure: true
 
@@ -18,14 +18,15 @@ processors:
   batch:
 
 connectors:
-  example:
+  pgtrace:
     attribute_name: db.name
 
 service:
   pipelines:
     traces:
-      receivers: [example]
+      receivers: [pgtrace]
       exporters: [debug, otlp]
     logs:
       receivers: [otlp]
-      exporters: [example]
+      # exporters: [pgtrace]
+      exporters: [pgtrace, debug]
